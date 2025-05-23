@@ -1,0 +1,5 @@
+<?xml version="1.0"?>
+<launch>
+    <arg name="script" default="collect_dataset.py"/>
+    <node pkg="node_reach_detector" type="$(arg script)" name="node_reach_detector_node" output="screen"/>
+</launch>
