@@ -4,7 +4,7 @@ import numpy as np
 import roslib
 roslib.load_manifest('node_reach_detector')
 import rospy
-from network import *
+from test_network import *
 import cv2
 from sensor_msgs.msg import Image
 from cv_bridge import CvBridge, CvBridgeError
@@ -157,12 +157,12 @@ class node_reach_detector:
 
             # if self.cmd_dir == (0, 1, 0) or self.cmd_dir == (0, 0, 1):
             if  self.cmd_dir_data == (1,0,0,0,0,0,0,0):
-                self.img_tensor, self.node_tensor = self.dl.make_dataset(img, 0)
+                self.img_tensor, self.node_tensor = self.dl.make_dataset(img, (1, 0))
                 print("label 0")
                 # self.dl.make_dataset(img_left, self.node_num)
                 # self.dl.make_dataset(img_right, self.node_num)
             else:
-                self.img_tensor, self.node_tensor = self.dl.make_dataset(img, 1)
+                self.img_tensor, self.node_tensor = self.dl.make_dataset(img, (0, 1))
                 print("label 1")
                 # self.dl.make_dataset(img_left, 0)
                 # self.dl.make_dataset(img_right, 0)
@@ -185,8 +185,7 @@ class node_reach_detector:
       
 if __name__ == '__main__':
     rg = node_reach_detector()
-    DURATION = 0.2
-    r = rospy.Rate(1 / DURATION)
+    r = rospy.Rate(8.0)
     while not rospy.is_shutdown():
         rg.loop()
         r.sleep()
