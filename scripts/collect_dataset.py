@@ -4,7 +4,7 @@ import numpy as np
 import roslib
 roslib.load_manifest('node_reach_detector')
 import rospy
-from test_network import *
+from network import *
 import cv2
 from sensor_msgs.msg import Image
 from cv_bridge import CvBridge, CvBridgeError
@@ -37,17 +37,15 @@ class node_reach_detector:
         rospy.init_node('node_reach_detector', anonymous=True)
         self.num = int(rospy.get_param("/node_reach_detector/num", "1"))
         self.bridge = CvBridge()
-        self.image_sub = rospy.Subscriber("/camera/image_raw", Image, self.callback)
-        self.image_left_sub = rospy.Subscriber("/camera_left/image_raw", Image, self.callback_left_camera)
-        self.image_right_sub = rospy.Subscriber("/camera_right/image_raw", Image, self.callback_right_camera)
+        self.image_sub = rospy.Subscriber("/camera_center/image_raw", Image, self.callback)
+
         self.vel = Twist()
         self.vel_sub = rospy.Subscriber("/joy_vel", Twist, self.callback_vel)
         self.nav_pub = rospy.Publisher('/cmd_vel', Twist, queue_size=10)
         self.dl = deep_learning()
         self.action = 0.0
         self.cv_image = np.zeros((480,640,3), np.uint8)
-        self.cv_left_image = np.zeros((480,640,3), np.uint8)
-        self.cv_right_image = np.zeros((480,640,3), np.uint8)
+
         self.tracker_sub = rospy.Subscriber("/tracker", Odometry, self.callback_tracker)
         self.cmd_dir = (1, 0, 0)
         self.old_cmd_dir = (1, 0, 0)
@@ -66,24 +64,13 @@ class node_reach_detector:
         #
 
         self.start_time = time.strftime("%Y%m%d_%H:%M:%S")
-        self.save_image_path = roslib.packages.get_pkg_dir('node_reach_detector') + '/data/dataset/' + str(self.start_time) + '/image/'
-        self.save_node_path = roslib.packages.get_pkg_dir('node_reach_detector') + '/data/dataset/' + str(self.start_time) + '/node/'
+        self.save_image_path = roslib.packages.get_pkg_dir('node_reach_detector') + '/data/dataset/image/'
+        self.save_node_path = roslib.packages.get_pkg_dir('node_reach_detector') + '/data/dataset/node/'
+        self.save_path = roslib.packages.get_pkg_dir('node_reach_detector') + '/data/model/'
 
     def callback(self, data):
         try:
-            self.cv_image = self.bridge.imgmsg_to_cv2(data, "bgr8")
-        except CvBridgeError as e:
-            print(e)
-
-    def callback_left_camera(self, data):
-        try:
-            self.cv_left_image = self.bridge.imgmsg_to_cv2(data, "bgr8")
-        except CvBridgeError as e:
-            print(e)
-
-    def callback_right_camera(self, data):
-        try:
-            self.cv_right_image = self.bridge.imgmsg_to_cv2(data, "bgr8")
+            self.cv_image = self.bridge.imgmsg_to_cv2(data, "rgb8")
         except CvBridgeError as e:
             print(e)
 
@@ -127,10 +114,6 @@ class node_reach_detector:
     def loop(self):
         if self.cv_image.size != 640 * 480 * 3:
             return
-        if self.cv_left_image.size != 640 * 480 * 3:
-            return
-        if self.cv_right_image.size != 640 * 480 * 3:
-            return
         if self.cmd_dir == (0, 0, 0):
             return
 
@@ -151,32 +134,34 @@ class node_reach_detector:
 
 
             img = resize(self.cv_image, (48, 64), mode='constant')
-            img_left = resize(self.cv_left_image, (48, 64), mode='constant')
-            img_right = resize(self.cv_right_image, (48, 64), mode='constant')
             print("cmd_dir_data: ", self.cmd_dir_data)
 
             # if self.cmd_dir == (0, 1, 0) or self.cmd_dir == (0, 0, 1):
-            if  self.cmd_dir_data == (1,0,0,0,0,0,0,0):
-                self.img_tensor, self.node_tensor = self.dl.make_dataset(img, (1, 0))
+            if self.cmd_dir_data == (1,0,0,0,0,0,0,0):
+                # self.img_tensor, self.node_tensor = self.dl.make_dataset(img, (0))
+                img_tensor, node_tensor = self.dl.make_dataset(img, (1, 0))
                 print("label 0")
                 # self.dl.make_dataset(img_left, self.node_num)
                 # self.dl.make_dataset(img_right, self.node_num)
             else:
-                self.img_tensor, self.node_tensor = self.dl.make_dataset(img, (0, 1))
+                # self.img_tensor, self.node_tensor = self.dl.make_dataset(img, (1))
+                img_tensor, node_tensor = self.dl.make_dataset(img, (0, 1))
                 print("label 1")
                 # self.dl.make_dataset(img_left, 0)
                 # self.dl.make_dataset(img_right, 0)
 
             if self.joy_flg: 
                 # img, node_num = self.dl.call_dataset()
-                self.dl.save_tensor(self.img_tensor, self.save_image_path, '/image.pt')
-                self.dl.save_tensor(self.node_tensor, self.save_node_path, '/node.pt')
+                self.dl.save_tensor(img_tensor, self.save_image_path, '/image.pt')
+                self.dl.save_tensor(node_tensor, self.save_node_path, '/node.pt')
                 os.system('killall roslaunch')
                 sys.exit()
 
             if self.loop_count_flag:
-                self.dl.save_tensor(self.img_tensor, self.save_image_path,'/image.pt')
-                self.dl.save_tensor(self.node_tensor, self.save_node_path, '/node.pt')
+                self.dl.save_tensor(img_tensor, self.save_image_path,'/image.pt')
+                self.dl.save_tensor(node_tensor, self.save_node_path, '/node.pt')
+                _, _ = self.dl.training(img_tensor, node_tensor, False)
+                self.dl.save(self.save_path)
                 self.loop_count_flag = False
                 os.system('killall roslaunch')
                 sys.exit()
