@@ -113,8 +113,10 @@ class node_reach_detector:
 
     def loop(self):
         if self.cv_image.size != 640 * 480 * 3:
+            print("No Image")
             return
         if self.cmd_dir == (0, 0, 0):
+            print("No direction")
             return
 
         if self.ignore_flg:
@@ -136,16 +138,14 @@ class node_reach_detector:
             img = resize(self.cv_image, (48, 64), mode='constant')
             print("cmd_dir_data: ", self.cmd_dir_data)
 
-            # if self.cmd_dir == (0, 1, 0) or self.cmd_dir == (0, 0, 1):
-            if self.cmd_dir_data == (1,0,0,0,0,0,0,0):
-                # self.img_tensor, self.node_tensor = self.dl.make_dataset(img, (0))
-                img_tensor, node_tensor = self.dl.make_dataset(img, (1, 0))
+            if self.cmd_dir == (0, 1, 0) or self.cmd_dir == (0, 0, 1):
+            # if self.cmd_dir_data == (1,0,0,0,0,0,0,0):
+                img_tensor, node_tensor = self.dl.make_dataset(img, (0, 1))
                 print("label 0")
                 # self.dl.make_dataset(img_left, self.node_num)
                 # self.dl.make_dataset(img_right, self.node_num)
             else:
-                # self.img_tensor, self.node_tensor = self.dl.make_dataset(img, (1))
-                img_tensor, node_tensor = self.dl.make_dataset(img, (0, 1))
+                img_tensor, node_tensor = self.dl.make_dataset(img, (1, 0))
                 print("label 1")
                 # self.dl.make_dataset(img_left, 0)
                 # self.dl.make_dataset(img_right, 0)
