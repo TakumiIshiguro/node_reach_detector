@@ -25,7 +25,7 @@ from torcheval.metrics.functional import multiclass_accuracy
 # HYPER PARAM
 BATCH_SIZE = 32
 FRAME_SIZE = 16
-EPOCH_NUM = 10
+EPOCH_NUM = 15
 
 class Net(nn.Module):
     def __init__(self, n_out):
@@ -85,7 +85,7 @@ class deep_learning:
         self.results_train['loss'], self.results_train['accuracy'] = [], []
         self.acc_list = []
         self.datas = []       
-        balance_weights = torch.tensor([1.0, 1.37]).to(self.device)
+        balance_weights = torch.tensor([1.0, 2.6]).to(self.device)
         self.criterion = nn.CrossEntropyLoss(weight=balance_weights)
         self.first_flag = True
         self.first_test_flag = True
@@ -232,8 +232,7 @@ class deep_learning:
         return torch.max(self.intersection_test, 1)[1].item()
         # return self.intersection_test
 
-    def save_tensor(self, input_tensor, save_path, file_name):
-        path = save_path + time.strftime("%Y%m%d_%H:%M:%S")
+    def save_tensor(self, input_tensor, path, file_name):
         os.makedirs(path)
         torch.save(input_tensor, path + file_name)
         print("save_dataset_tensor:",)

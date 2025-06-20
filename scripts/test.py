@@ -36,15 +36,17 @@ class node_reach_detector:
     def __init__(self):
         rospy.init_node('node_reach_detector', anonymous=True)
         self.bridge = CvBridge()
+        self.intersection_pub = rospy.Publisher("passage_type", cmd_dir_intersection, queue_size=1)
+        self.intersection = cmd_dir_intersection()
         self.image_sub = rospy.Subscriber("/camera_center/image_raw", Image, self.callback)
         self.vel = Twist()
         self.dl = deep_learning()
         self.episode = 0
         self.cv_image = np.zeros((480,640,3), np.uint8)
-        self.load_path =roslib.packages.get_pkg_dir('node_reach_detector') + '/data/model/test/model.pt'
+        self.load_path =roslib.packages.get_pkg_dir('node_reach_detector') + '/data/model/joy/model.pt'
         self.first_flag = False
         # todo: delete        
-        self.intersection = ["straight_road", "intersection"]
+        self.intersection_list = ["straight_road", "intersection"]
 
     def callback(self, data):
         try:
@@ -63,9 +65,9 @@ class node_reach_detector:
             print("load model: ",self.load_path)
         
         intersection = self.dl.test(img)
-        # self.intersection.intersection_name = self.intersection_list[intersection]
-        print(intersection)
-        # self.intersection_pub.publish(self.intersection)
+        self.intersection.intersection_name = self.intersection_list[intersection]
+        print(self.intersection.intersection_name)
+        self.intersection_pub.publish(self.intersection)
         # print("test" + str(self.episode) +", intersection_name: " + str(self.intersection.intersection_name))
 
         self.episode += 1
