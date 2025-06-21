@@ -64,9 +64,8 @@ class node_reach_detector:
         #
 
         self.start_time = time.strftime("%Y%m%d_%H:%M:%S")
-        self.save_image_path = roslib.packages.get_pkg_dir('node_reach_detector') + '/data/dataset/image/'
-        self.save_node_path = roslib.packages.get_pkg_dir('node_reach_detector') + '/data/dataset/node/'
-        self.save_path = roslib.packages.get_pkg_dir('node_reach_detector') + '/data/model/'
+        self.save_image_path = roslib.packages.get_pkg_dir('node_reach_detector') + '/data/dataset/' + str(self.start_time) + '/image/'
+        self.save_node_path = roslib.packages.get_pkg_dir('node_reach_detector') + '/data/dataset/' + str(self.start_time) + '/node/'
 
     def callback(self, data):
         try:
@@ -160,8 +159,8 @@ class node_reach_detector:
             if self.loop_count_flag:
                 self.dl.save_tensor(img_tensor, self.save_image_path,'/image.pt')
                 self.dl.save_tensor(node_tensor, self.save_node_path, '/node.pt')
-                _, _ = self.dl.training(img_tensor, node_tensor, False)
-                self.dl.save(self.save_path)
+                # _, _ = self.dl.training(img_tensor, node_tensor, False)
+                # self.dl.save(self.save_path)
                 self.loop_count_flag = False
                 os.system('killall roslaunch')
                 sys.exit()

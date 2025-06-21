@@ -9,6 +9,7 @@ from os.path import expanduser
 import torch
 import torchvision
 import torch.nn as nn
+import torch.nn.functional as F
 from torch.utils.data import DataLoader, TensorDataset, Dataset,Subset
 from torchvision import transforms, models
 from torchvision.datasets import ImageFolder
@@ -61,7 +62,7 @@ class Net(nn.Module):
         class_out = self.output_layer(lstm_out)
         # print("class_out",class_out)
         class_out = torch.mean(class_out,dim=1)
-        print("class_out_mean",class_out)
+        # print("class_out_mean",class_out)
         return class_out
     
 class deep_learning:
@@ -85,7 +86,7 @@ class deep_learning:
         self.results_train['loss'], self.results_train['accuracy'] = [], []
         self.acc_list = []
         self.datas = []       
-        balance_weights = torch.tensor([1.0, 2.6]).to(self.device)
+        balance_weights = torch.tensor([1.0, 3.0]).to(self.device)
         self.criterion = nn.CrossEntropyLoss(weight=balance_weights)
         self.first_flag = True
         self.first_test_flag = True
@@ -217,20 +218,30 @@ class deep_learning:
                 img, dtype=torch.float32, device=self.device).unsqueeze(0)
             self.x_cat_test = self.x_cat_test.permute(0, 3, 1, 2)
             self.first_test_flag = False
-        
+            self.prev_prediction = 0
+
         x = torch.tensor(
             img, dtype=torch.float32, device=self.device).unsqueeze(0)
         x = x.permute(0, 3, 1, 2)
         self.x_cat_test = torch.cat([self.x_cat_test, x], dim=0)
         # print("x_test_cat:",self.x_cat_test.shape)
         if self.x_cat_test.size()[0] == FRAME_SIZE:
-            self.intersection_test = self.net(self.x_cat_test.unsqueeze(0))
-            print("s:",self.intersection_test.shape)
-            self.x_cat_test = self.x_cat_test[1:]
-        # print(x_test_ten.shape,x_test_ten.device,c_test.shape,c_test.device)
-    # <test phase>        
-        return torch.max(self.intersection_test, 1)[1].item()
-        # return self.intersection_test
+            with torch.no_grad():
+                logits = self.net(self.x_cat_test.unsqueeze(0))  # shape: [1, n_out]
+                probs = F.softmax(logits, dim=1).squeeze(0)      # shape: [n_out]
+                confidence, predicted = torch.max(probs, dim=0)  # 最も高いクラスとその確信度
+
+                print("softmax output:", probs)
+                print("confidence:", confidence.item(), "predicted:", predicted.item())
+
+                self.x_cat_test = self.x_cat_test[1:]  # 古いフレームを削除
+
+                # 確信度に基づく判断
+                if confidence.item() >= 0.8:
+                    self.prev_prediction = predicted.item()
+                print("output:", self.prev_prediction)
+
+        return self.prev_prediction
 
     def save_tensor(self, input_tensor, path, file_name):
         os.makedirs(path)
