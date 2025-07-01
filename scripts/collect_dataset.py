@@ -106,9 +106,9 @@ class node_reach_detector:
             self.cmd_dir = (1, 0, 0)
 
         if data.buttons[5] == 1:
-            self.ignore_flg = True
+            self.inter_flg = True
         else: 
-            self.ignore_flg = False
+            self.inter_flg = False
 
     def loop(self):
         if self.cv_image.size != 640 * 480 * 3:
@@ -118,54 +118,54 @@ class node_reach_detector:
             print("No direction")
             return
 
-        if self.ignore_flg:
+        # if self.ignore_flg:
+        #     pass
+        # else:
+        if self.old_cmd_dir != self.cmd_dir and self.cmd_dir != (1, 0, 0):
+        #     self.node_num += 1
+        # self.old_cmd_dir = self.cmd_dir
             pass
+        
+        # crooped_img = self.cv_image[:, 80:560]
+        # crooped_left_img = self.cv_left_image[156:, :]
+        # crooped_right_img = self.cv_right_image[156:, :]
+        # img = resize(crooped_img, (227, 227), mode='constant')
+        # img_left = resize(self.cv_left_image, (48, 64), mode='constant')
+        # img_right = resize(self.cv_right_image, (48, 64), mode='constant')
+
+
+        img = resize(self.cv_image, (48, 64), mode='constant')
+        print("cmd_dir_data: ", self.cmd_dir_data)
+
+        if self.cmd_dir == (0, 1, 0) or self.cmd_dir == (0, 0, 1) or self.inter_flg:
+        # if self.cmd_dir_data == (1,0,0,0,0,0,0,0):
+            img_tensor, node_tensor = self.dl.make_dataset(img, (0, 1))
+            print("label 0")
+            # self.dl.make_dataset(img_left, self.node_num)
+            # self.dl.make_dataset(img_right, self.node_num)
         else:
-            if self.old_cmd_dir != self.cmd_dir and self.cmd_dir != (1, 0, 0):
-            #     self.node_num += 1
-            # self.old_cmd_dir = self.cmd_dir
-                pass
-            
-            # crooped_img = self.cv_image[:, 80:560]
-            # crooped_left_img = self.cv_left_image[156:, :]
-            # crooped_right_img = self.cv_right_image[156:, :]
-            # img = resize(crooped_img, (227, 227), mode='constant')
-            # img_left = resize(self.cv_left_image, (48, 64), mode='constant')
-            # img_right = resize(self.cv_right_image, (48, 64), mode='constant')
+            img_tensor, node_tensor = self.dl.make_dataset(img, (1, 0))
+            print("label 1")
+            # self.dl.make_dataset(img_left, 0)
+            # self.dl.make_dataset(img_right, 0)
 
+        if self.joy_flg: 
+            # img, node_num = self.dl.call_dataset()
+            self.dl.save_tensor(img_tensor, self.save_image_path, '/image.pt')
+            self.dl.save_tensor(node_tensor, self.save_node_path, '/node.pt')
+            os.system('killall roslaunch')
+            sys.exit()
 
-            img = resize(self.cv_image, (48, 64), mode='constant')
-            print("cmd_dir_data: ", self.cmd_dir_data)
-
-            if self.cmd_dir == (0, 1, 0) or self.cmd_dir == (0, 0, 1):
-            # if self.cmd_dir_data == (1,0,0,0,0,0,0,0):
-                img_tensor, node_tensor = self.dl.make_dataset(img, (0, 1))
-                print("label 0")
-                # self.dl.make_dataset(img_left, self.node_num)
-                # self.dl.make_dataset(img_right, self.node_num)
-            else:
-                img_tensor, node_tensor = self.dl.make_dataset(img, (1, 0))
-                print("label 1")
-                # self.dl.make_dataset(img_left, 0)
-                # self.dl.make_dataset(img_right, 0)
-
-            if self.joy_flg: 
-                # img, node_num = self.dl.call_dataset()
-                self.dl.save_tensor(img_tensor, self.save_image_path, '/image.pt')
-                self.dl.save_tensor(node_tensor, self.save_node_path, '/node.pt')
-                os.system('killall roslaunch')
-                sys.exit()
-
-            if self.loop_count_flag:
-                self.dl.save_tensor(img_tensor, self.save_image_path,'/image.pt')
-                self.dl.save_tensor(node_tensor, self.save_node_path, '/node.pt')
-                # _, _ = self.dl.training(img_tensor, node_tensor, False)
-                # self.dl.save(self.save_path)
-                self.loop_count_flag = False
-                os.system('killall roslaunch')
-                sys.exit()
-            else :
-                pass
+        if self.loop_count_flag:
+            self.dl.save_tensor(img_tensor, self.save_image_path,'/image.pt')
+            self.dl.save_tensor(node_tensor, self.save_node_path, '/node.pt')
+            # _, _ = self.dl.training(img_tensor, node_tensor, False)
+            # self.dl.save(self.save_path)
+            self.loop_count_flag = False
+            os.system('killall roslaunch')
+            sys.exit()
+        else :
+            pass
       
 if __name__ == '__main__':
     rg = node_reach_detector()

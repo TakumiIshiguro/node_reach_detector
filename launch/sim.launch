@@ -46,9 +46,9 @@
         <remap from="cmd_vel" to="$(arg cmd_vel)"/>
   </node>
 
-   <node pkg="timed_roslaunch" type="timed_roslaunch.sh"
+   <!-- <node pkg="timed_roslaunch" type="timed_roslaunch.sh"
         args="10 node_reach_detector node_reach_detector.launch script:=$(arg script)"
         name="timed_roslaunch" output="screen" >
-   </node>
+   </node> -->
 
 </launch>
