@@ -18,8 +18,8 @@ import torchvision.datasets as datasets
 import torchvision.transforms as transforms
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
-import random
-import glob
+from torch.optim.lr_scheduler import CosineAnnealingLR
+
 #test
 from torcheval.metrics.functional import multiclass_accuracy
 
@@ -74,6 +74,7 @@ class deep_learning:
         self.net = Net(n_out=2)
         self.net.to(self.device)
         self.optimizer = optim.Adam(self.net.parameters(), eps=1e-2, weight_decay=5e-4)
+        self.scheduler = CosineAnnealingLR(self.optimizer, T_max=EPOCH_NUM, eta_min=1e-6)  #1e-6
         self.totensor = transforms.ToTensor()
         self.normalization = transforms.Compose([transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])])
         self.transform_color = transforms.ColorJitter(
@@ -86,7 +87,7 @@ class deep_learning:
         self.results_train['loss'], self.results_train['accuracy'] = [], []
         self.acc_list = []
         self.datas = []       
-        balance_weights = torch.tensor([1.0, 3.0]).to(self.device)
+        balance_weights = torch.tensor([1.0, 2.2]).to(self.device)
         self.criterion = nn.CrossEntropyLoss(weight=balance_weights)
         self.first_flag = True
         self.first_test_flag = True
@@ -200,9 +201,9 @@ class deep_learning:
 
                 self.count += 1
                 self.train_accuracy = 0
-            epoch_loss = batch_loss / len(train_dataset)
-            epoch_accuracy = batch_accuracy / len(train_dataset)
-            print("epoch loss:", epoch_loss, "epoch accuracy:", epoch_accuracy)
+            current_lr = self.optimizer.param_groups[0]['lr']
+            # self.scheduler.step() 
+            print(f'epoch [{epoch+1}/{EPOCH_NUM}], loss: {batch_loss/len(train_dataset):.4f}, accuracy: {batch_accuracy/len(train_dataset)}, lr: {current_lr:.6f}')
             # self.writer.add_scalar("epoch loss", epoch_loss, epoch)
             # self.writer.add_scalar("epoch accuracy",epoch_accuracy,epoch)
         print("Finish learning")

@@ -39,9 +39,6 @@ class node_reach_detector:
         self.bridge = CvBridge()
         self.image_sub = rospy.Subscriber("/camera_center/image_raw", Image, self.callback)
 
-        self.vel = Twist()
-        self.vel_sub = rospy.Subscriber("/joy_vel", Twist, self.callback_vel)
-        self.nav_pub = rospy.Publisher('/cmd_vel', Twist, queue_size=10)
         self.dl = deep_learning()
         self.action = 0.0
         self.cv_image = np.zeros((480,640,3), np.uint8)
@@ -53,15 +50,10 @@ class node_reach_detector:
         self.pos_y = 0.0
         self.joy_sub = rospy.Subscriber("/joy", Joy, self.joy_callback)
         self.joy_flg = False
-        self.ignore_flg = False
-
-        # todo: delete
-        self.cmd_dir_sub = rospy.Subscriber("/cmd_dir_intersection", cmd_dir_intersection, self.callback_cmd,queue_size=1)
-        self.cmd_dir_data = [0,0,0,0,0,0,0,0]
+        self.inter_flg = False
         
         self.loop_srv = rospy.Service('/loop_count', SetBool, self.callback_loop_count)
         self.loop_count_flag = False
-        #
 
         self.start_time = time.strftime("%Y%m%d_%H:%M:%S")
         self.save_image_path = roslib.packages.get_pkg_dir('node_reach_detector') + '/data/dataset/' + str(self.start_time) + '/image/'
@@ -73,25 +65,8 @@ class node_reach_detector:
         except CvBridgeError as e:
             print(e)
 
-    def callback_vel(self, data):
-        self.vel = data
-        self.action = self.vel.angular.z
-
-    def callback_tracker(self, data):
-        self.pos_x = data.pose.pose.position.x
-        self.pos_y = data.pose.pose.position.y
-
-#
-    def callback_cmd(self, data):
-        self.cmd_dir_data = data.intersection_label
-
     def callback_loop_count(self, data):
-        resp = SetBoolResponse()
         self.loop_count_flag = data.data
-        resp.message = "Training: " + str(self.learning)
-        resp.success = True
-        return resp
-#
 
     def joy_callback(self, data):
         # buttons[1] が押されているかチェック
@@ -118,12 +93,7 @@ class node_reach_detector:
             print("No direction")
             return
 
-        # if self.ignore_flg:
-        #     pass
-        # else:
         if self.old_cmd_dir != self.cmd_dir and self.cmd_dir != (1, 0, 0):
-        #     self.node_num += 1
-        # self.old_cmd_dir = self.cmd_dir
             pass
         
         # crooped_img = self.cv_image[:, 80:560]
@@ -135,22 +105,15 @@ class node_reach_detector:
 
 
         img = resize(self.cv_image, (48, 64), mode='constant')
-        print("cmd_dir_data: ", self.cmd_dir_data)
 
         if self.cmd_dir == (0, 1, 0) or self.cmd_dir == (0, 0, 1) or self.inter_flg:
-        # if self.cmd_dir_data == (1,0,0,0,0,0,0,0):
             img_tensor, node_tensor = self.dl.make_dataset(img, (0, 1))
             print("label 0")
-            # self.dl.make_dataset(img_left, self.node_num)
-            # self.dl.make_dataset(img_right, self.node_num)
         else:
             img_tensor, node_tensor = self.dl.make_dataset(img, (1, 0))
             print("label 1")
-            # self.dl.make_dataset(img_left, 0)
-            # self.dl.make_dataset(img_right, 0)
 
         if self.joy_flg: 
-            # img, node_num = self.dl.call_dataset()
             self.dl.save_tensor(img_tensor, self.save_image_path, '/image.pt')
             self.dl.save_tensor(node_tensor, self.save_node_path, '/node.pt')
             os.system('killall roslaunch')
@@ -159,8 +122,6 @@ class node_reach_detector:
         if self.loop_count_flag:
             self.dl.save_tensor(img_tensor, self.save_image_path,'/image.pt')
             self.dl.save_tensor(node_tensor, self.save_node_path, '/node.pt')
-            # _, _ = self.dl.training(img_tensor, node_tensor, False)
-            # self.dl.save(self.save_path)
             self.loop_count_flag = False
             os.system('killall roslaunch')
             sys.exit()

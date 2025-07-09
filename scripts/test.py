@@ -24,14 +24,6 @@ from scenario_navigation_msgs.msg import cmd_dir_intersection
 from std_srvs.srv import SetBool, SetBoolResponse
 
 
-# def load_config(filename="config.yaml"):
-#     script_dir = os.path.dirname(os.path.abspath(__file__))
-#     config_path = os.path.join(script_dir, "..", "config", filename)  # configディレクトリ内を想定
-#     with open(config_path, 'r') as file:
-#         return yaml.safe_load(file)
-    
-# config = load_config()
-
 class node_reach_detector:
     def __init__(self):
         rospy.init_node('node_reach_detector', anonymous=True)
@@ -43,7 +35,7 @@ class node_reach_detector:
         self.dl = deep_learning()
         self.episode = 0
         self.cv_image = np.zeros((480,640,3), np.uint8)
-        self.load_path =roslib.packages.get_pkg_dir('node_reach_detector') + '/data/model/joy/model.pt'
+        self.load_path =roslib.packages.get_pkg_dir('node_reach_detector') + '/data/model/test/model.pt'
         self.first_flag = False
         # todo: delete        
         self.intersection_list = ["straight_road", "intersection"]
