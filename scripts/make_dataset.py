@@ -42,8 +42,6 @@ class node_reach_detector:
         self.dl = deep_learning()
         self.action = 0.0
         self.cv_image = np.zeros((480,640,3), np.uint8)
-
-        self.tracker_sub = rospy.Subscriber("/tracker", Odometry, self.callback_tracker)
         self.cmd_dir = (1, 0, 0)
         self.old_cmd_dir = (1, 0, 0)
         self.pos_x = 0.0
@@ -108,10 +106,10 @@ class node_reach_detector:
 
         if self.cmd_dir == (0, 1, 0) or self.cmd_dir == (0, 0, 1) or self.inter_flg:
             img_tensor, node_tensor = self.dl.make_dataset(img, (0, 1))
-            print("label 0")
+            print("label 1")
         else:
             img_tensor, node_tensor = self.dl.make_dataset(img, (1, 0))
-            print("label 1")
+            print("label 0")
 
         if self.joy_flg: 
             self.dl.save_tensor(img_tensor, self.save_image_path, '/image.pt')
