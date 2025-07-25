@@ -23,15 +23,6 @@ import yaml
 from scenario_navigation_msgs.msg import cmd_dir_intersection
 from std_srvs.srv import SetBool, SetBoolResponse
 
-
-# def load_config(filename="config.yaml"):
-#     script_dir = os.path.dirname(os.path.abspath(__file__))
-#     config_path = os.path.join(script_dir, "..", "config", filename)  # configディレクトリ内を想定
-#     with open(config_path, 'r') as file:
-#         return yaml.safe_load(file)
-    
-# config = load_config()
-
 class node_reach_detector:
     def __init__(self):
         rospy.init_node('node_reach_detector', anonymous=True)
@@ -83,6 +74,26 @@ class node_reach_detector:
         else: 
             self.inter_flg = False
 
+    def preprocess_for_mobilenet(self, image):
+        """
+        MobileNetV3用に画像を前処理：
+        - BGR → RGB
+        - 正方形中央クロップ → 224x224へリサイズ
+        - 0〜1のfloat32に変換
+        """
+        # BGR → RGB
+        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+
+        h, w = image.shape[:2]
+        crop_size = min(h, w)
+        left = (w - crop_size) // 2
+        top = (h - crop_size) // 2
+        image_crop = image[top:top+crop_size, left:left+crop_size]
+
+        # リサイズ & 正規化
+        image_resized = resize(image_crop, (224, 224), mode='constant')
+        return image_resized
+
     def loop(self):
         if self.cv_image.size != 640 * 480 * 3:
             print("No Image")
@@ -101,8 +112,10 @@ class node_reach_detector:
         # img_left = resize(self.cv_left_image, (48, 64), mode='constant')
         # img_right = resize(self.cv_right_image, (48, 64), mode='constant')
 
-
-        img = resize(self.cv_image, (48, 64), mode='constant')
+        img = resize(self.cv_image, (224, 224), mode='constant')
+        cv2.imshow("resize", img)
+        cv2.imshow("center", self.cv_image)
+        cv2.waitKey(1)
 
         if self.cmd_dir == (0, 1, 0) or self.cmd_dir == (0, 0, 1) or self.inter_flg:
             img_tensor, node_tensor = self.dl.make_dataset(img, (0, 1))

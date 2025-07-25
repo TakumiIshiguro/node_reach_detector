@@ -26,7 +26,7 @@ from torcheval.metrics.functional import multiclass_accuracy
 # HYPER PARAM
 BATCH_SIZE = 32
 FRAME_SIZE = 16
-EPOCH_NUM = 15
+EPOCH_NUM = 20
 
 class Net(nn.Module):
     def __init__(self, n_out):
@@ -42,28 +42,27 @@ class Net(nn.Module):
         self.output_layer = nn.Linear(512, n_out)
 
     def forward(self, x):
-        # x's dimension: [B, T, C, H, W]
-        # frameFeatures' dimension: [B, T, CNN's output dimension(1280)]
-        frameFeatures = torch.empty(size=(x.size()[0], x.size()[1], 1280), device='cuda')
-        for t in range(0, x.size()[1]):
-            #<x[B,T,C,H,W]->CNN[B,T,1280]>
-            #print("forword_x:",x.shape)
-            frame = x[:, t, :, :, :]
-            #print("forword_frame:",frame.shape)
-            frame_feature = self.v3_layer(frame)
-            #print(frame_feature.shape)
-            #[B,seq_len,H]
-            frameFeatures[:, t, :] = frame_feature
-        #<CNN[B,T,1280] -> lstm[B,1280,512]>
-        #print("lstm_in:",frameFeatures.shape)
-        lstm_out, _ = self.lstm(frameFeatures)
-        #<lstm[B,1280]-> FC[B,4,512]>
-        # print("lstm_out:",lstm_out.shape)
-        class_out = self.output_layer(lstm_out)
-        # print("class_out",class_out)
-        class_out = torch.mean(class_out,dim=1)
-        # print("class_out_mean",class_out)
+        # x: [B, T, C, H, W]
+        B, T, C, H, W = x.size()
+        frame_features_list = []
+
+        # CNN処理部分だけ no_grad で分離（メモリ節約）
+        with torch.no_grad():
+            for t in range(T):
+                frame = x[:, t, :, :, :]                        # [B, C, H, W]
+                feature = self.v3_layer(frame)                  # [B, 1280]
+                frame_features_list.append(feature.unsqueeze(1))  # [B, 1, 1280]
+
+        # 結合 → [B, T, 1280]
+        frame_features = torch.cat(frame_features_list, dim=1).detach()  # detachで念押し
+
+        # ここから勾配計算を有効化（LSTM以降だけ）
+        lstm_out, _ = self.lstm(frame_features)                 # [B, T, 512]
+        class_out = self.output_layer(lstm_out)                 # [B, T, n_out]
+        class_out = torch.mean(class_out, dim=1)                # [B, n_out]
+
         return class_out
+
     
 class deep_learning:
     def __init__(self):
@@ -87,7 +86,7 @@ class deep_learning:
         self.results_train['loss'], self.results_train['accuracy'] = [], []
         self.acc_list = []
         self.datas = []       
-        balance_weights = torch.tensor([1.0, 2.2]).to(self.device)
+        balance_weights = torch.tensor([1.0, 2.1]).to(self.device)
         self.criterion = nn.CrossEntropyLoss(weight=balance_weights)
         self.first_flag = True
         self.first_test_flag = True
@@ -103,21 +102,21 @@ class deep_learning:
         # make tensor(T,C,H,W)
         if self.first_flag:
             self.x_cat = torch.tensor(
-                img, dtype=torch.float32, device=self.device).unsqueeze(0)
+                img, dtype=torch.float32).unsqueeze(0)
             self.x_cat = self.x_cat.permute(0, 3, 1, 2)
             self.t_cat = torch.tensor(
-                [intersection_label], dtype=torch.float32, device=self.device)
+                [intersection_label], dtype=torch.float32)
             if self.first_time_flag:
-                self.x_cat_time = torch.zeros(1,FRAME_SIZE,3,48,64).to(self.device) 
+                self.x_cat_time = torch.zeros(1,FRAME_SIZE, 3, 224, 224)
                 self.t_cat_time = torch.clone(self.t_cat)
 
             self.first_flag = False
             self.first_time_flag = False
         # <to tensor img(x),intersection_label(t)>
-        x = torch.tensor(img, dtype=torch.float32, device=self.device).unsqueeze(0)
+        x = torch.tensor(img, dtype=torch.float32).unsqueeze(0)
         # <(T,H,W,Channel) -> (T,Channel,H,W)>
         x = x.permute(0, 3, 1, 2)
-        t = torch.tensor([intersection_label], dtype=torch.float32, device=self.device)
+        t = torch.tensor([intersection_label], dtype=torch.float32)
         print(intersection_label)
         if intersection_label == self.old_label:
             self.diff_flag = False
@@ -142,20 +141,12 @@ class deep_learning:
 
         return self.x_cat_time,self.t_cat_time
         
-    def training(self, load_x_tensor, load_t_tensor, load_flag):
+    def training(self):
         self.device = torch.device('cuda')
         print(self.device)
-
-        if load_flag:
-            load_x_tensor = torch.load(load_x_tensor)
-            load_t_tensor = torch.load(load_t_tensor)
-
-        print("x_tensor:", load_x_tensor.shape, "t_tensor:",load_t_tensor)
-        print("label info :", torch.sum(load_t_tensor, dim=0))
-
         # return 0
-        dataset = TensorDataset(load_x_tensor, load_t_tensor)
-        train_dataset = DataLoader(dataset, batch_size=BATCH_SIZE, generator=torch.Generator('cpu'), shuffle=True)
+        dataset = TensorDataset(self.x_cat_time, self.t_cat_time)
+        train_dataset = DataLoader(dataset, batch_size=BATCH_SIZE, generator=torch.Generator('cpu'), shuffle=True, pin_memory=True, num_workers=2)
 
     # <training mode>
         self.net.train()
