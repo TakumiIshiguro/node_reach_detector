@@ -32,7 +32,7 @@ class node_reach_detector:
         rospy.init_node('node_reach_detector', anonymous=True)
 
         self.dl = deep_learning()
-        self.name = '224'
+        self.name = 'test'
         self.save_base = roslib.packages.get_pkg_dir('node_reach_detector') + '/data/'
         self.save_dataset = self.save_base + '/dataset/'
         self.save_model = self.save_base + '/model/'
@@ -41,7 +41,8 @@ class node_reach_detector:
         self.image_dirs = {
             'center': os.path.join(self.load_base, 'image/center'),
             'left':   os.path.join(self.load_base, 'image/left'),
-            'right':  os.path.join(self.load_base, 'image/right')
+            'right':  os.path.join(self.load_base, 'image/right'),
+            'resize':  os.path.join(self.load_base, 'image/resize')
         }
 
         self.inter_csv = os.path.join(self.load_base, 'inter.csv')
@@ -85,10 +86,7 @@ class node_reach_detector:
     def main(self):
         print("[INFO] Loading data...")
         inter_dict = self.load_inter_csv(self.inter_csv)
-
-        dataset = None  # 初期化
-
-        for view in ['center', 'left', 'right']:
+        for view in ['resize']:
             img_dict = self.load_images(self.image_dirs[view])
             print(f"[INFO] Loaded {len(img_dict)} images for view: {view}")
 

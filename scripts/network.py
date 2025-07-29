@@ -24,45 +24,40 @@ from torch.optim.lr_scheduler import CosineAnnealingLR
 from torcheval.metrics.functional import multiclass_accuracy
 
 # HYPER PARAM
-BATCH_SIZE = 32
+BATCH_SIZE = 16
 FRAME_SIZE = 16
-EPOCH_NUM = 20
+EPOCH_NUM = 10
 
 class Net(nn.Module):
-    def __init__(self, n_out):
+    def __init__(self, n_out, num_frames_to_train_cnn=15):
         super().__init__()
-    # <Network mobilenetv3>
         v3 = models.mobilenet_v3_large(weights='IMAGENET1K_V1')
-        v3.classifier[-1]= nn.Linear(in_features=1280, out_features = 1280)
-    # <CNN layer>
+        v3.classifier[-1] = nn.Linear(in_features=1280, out_features=1280)
         self.v3_layer = v3
-    #<LSTM + OUTPUT>
-        self.lstm = nn.LSTM(input_size=1280,
-                            hidden_size=512, num_layers=2, batch_first=True)
+        self.lstm = nn.LSTM(input_size=1280, hidden_size=512, num_layers=2, batch_first=True)
         self.output_layer = nn.Linear(512, n_out)
+        self.num_frames_to_train_cnn = num_frames_to_train_cnn
 
     def forward(self, x):
-        # x: [B, T, C, H, W]
         B, T, C, H, W = x.size()
-        frame_features_list = []
+        frame_features = []
 
-        # CNN処理部分だけ no_grad で分離（メモリ節約）
-        with torch.no_grad():
-            for t in range(T):
-                frame = x[:, t, :, :, :]                        # [B, C, H, W]
-                feature = self.v3_layer(frame)                  # [B, 1280]
-                frame_features_list.append(feature.unsqueeze(1))  # [B, 1, 1280]
+        for t in range(T):
+            frame = x[:, t, :, :, :]  # [B, C, H, W]
+            if t < self.num_frames_to_train_cnn:
+                # CNNに勾配を流す（学習させる）
+                feature = self.v3_layer(frame)  # [B, 1280]
+            else:
+                # 勾配を無効化してメモリ節約（学習させない）
+                with torch.no_grad():
+                    feature = self.v3_layer(frame)  # [B, 1280]
+            frame_features.append(feature.unsqueeze(1))  # [B, 1, 1280]
 
-        # 結合 → [B, T, 1280]
-        frame_features = torch.cat(frame_features_list, dim=1).detach()  # detachで念押し
-
-        # ここから勾配計算を有効化（LSTM以降だけ）
-        lstm_out, _ = self.lstm(frame_features)                 # [B, T, 512]
-        class_out = self.output_layer(lstm_out)                 # [B, T, n_out]
-        class_out = torch.mean(class_out, dim=1)                # [B, n_out]
-
+        frame_features = torch.cat(frame_features, dim=1)  # [B, T, 1280]
+        lstm_out, _ = self.lstm(frame_features)
+        class_out = self.output_layer(lstm_out)
+        class_out = torch.mean(class_out, dim=1)  # [B, n_out]
         return class_out
-
     
 class deep_learning:
     def __init__(self):
@@ -72,8 +67,8 @@ class deep_learning:
         print(self.device)
         self.net = Net(n_out=2)
         self.net.to(self.device)
-        self.optimizer = optim.Adam(self.net.parameters(), eps=1e-2, weight_decay=5e-4)
-        self.scheduler = CosineAnnealingLR(self.optimizer, T_max=EPOCH_NUM, eta_min=1e-6)  #1e-6
+        self.optimizer = optim.Adam(self.net.parameters(), lr=1e-4, eps=1e-8, weight_decay=1e-5)
+        self.scheduler = CosineAnnealingLR(self.optimizer, T_max=EPOCH_NUM, eta_min=1e-6)
         self.totensor = transforms.ToTensor()
         self.normalization = transforms.Compose([transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])])
         self.transform_color = transforms.ColorJitter(
@@ -193,7 +188,7 @@ class deep_learning:
                 self.count += 1
                 self.train_accuracy = 0
             current_lr = self.optimizer.param_groups[0]['lr']
-            # self.scheduler.step() 
+            self.scheduler.step() 
             print(f'epoch [{epoch+1}/{EPOCH_NUM}], loss: {batch_loss/len(train_dataset):.4f}, accuracy: {batch_accuracy/len(train_dataset)}, lr: {current_lr:.6f}')
             # self.writer.add_scalar("epoch loss", epoch_loss, epoch)
             # self.writer.add_scalar("epoch accuracy",epoch_accuracy,epoch)
