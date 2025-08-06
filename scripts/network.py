@@ -224,15 +224,16 @@ class deep_learning:
                 self.x_cat_test = self.x_cat_test[1:]  # 古いフレームを削除
 
                 # 確信度に基づく判断
-                if confidence.item() >= 0.8:
+                if confidence.item() >= 0.7:
                     self.prev_prediction = predicted.item()
                 print("output:", self.prev_prediction)
 
         return self.prev_prediction
 
-    def save_tensor(self, input_tensor, path, file_name):
+    def save_tensor(self, path, file_name):
         os.makedirs(path)
-        torch.save(input_tensor, path + file_name)
+        dataset = TensorDataset(self.x_cat_time, self.t_cat_time)
+        torch.save(dataset, path + file_name)
         print("save_dataset_tensor:",)
 
     def save(self, save_path):
