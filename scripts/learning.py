@@ -30,35 +30,84 @@ from nav_msgs.msg import Odometry
 class node_reach_detector:
     def __init__(self):
         rospy.init_node('node_reach_detector', anonymous=True)
-        self.dl = deep_learning()
-        self.learning = True
-        self.mode_save_srv = rospy.Service('/model_save', Trigger, self.callback_model_save)
-        self.start_time = time.strftime("%Y%m%d_%H:%M:%S")
-        self.name = 'test'
-        self.save_path = roslib.packages.get_pkg_dir('node_reach_detector') + '/data/model/'
-        # self.load_path =roslib.packages.get_pkg_dir('node_reach_detector') + '/data/model/cit3f/direction/1/model.pt'
-        self.load_image_path = roslib.packages.get_pkg_dir('node_reach_detector') + '/data/dataset/' + str(self.name) + '/image/image.pt'
-        self.load_node_path = roslib.packages.get_pkg_dir('node_reach_detector') + '/data/dataset/' + str(self.name) + '/node/node.pt'
-        self.start_time_s = rospy.get_time()
 
-    def callback_model_save(self, data):
-        model_res = SetBoolResponse()
-        self.dl.save(self.save_path)
-        model_res.message ="model_save"
-        model_res.success = True
-        return model_res
+        self.dl = deep_learning()
+        self.name = 'test'
+        self.save_base = roslib.packages.get_pkg_dir('node_reach_detector') + '/data/'
+        self.save_dataset = self.save_base + '/dataset/'
+        self.save_model = self.save_base + '/model/'
+        self.load_base = roslib.packages.get_pkg_dir('dataset_creator') + '/dataset/' + str(self.name)
+
+        self.image_dirs = {
+            'center': os.path.join(self.load_base, 'image/center'),
+            'left':   os.path.join(self.load_base, 'image/left'),
+            'right':  os.path.join(self.load_base, 'image/right'),
+            'resize':  os.path.join(self.load_base, 'image/resize')
+        }
+
+        self.inter_csv = os.path.join(self.load_base, 'inter.csv')
+
+        print("[INFO] Dataset load path:", self.load_base)
+
+    def load_images(self, path):
+        image_data = {}
+        files = sorted(
+            [f for f in os.listdir(path) if f.endswith('.png')],
+            key=lambda f: int(os.path.splitext(f)[0])
+        )
+        for file in files:
+            try:
+                episode = int(os.path.splitext(file)[0])
+                img = cv2.imread(os.path.join(path, file))
+                if img is None:
+                    continue
+                img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)  # RGBに変換
+                img = img.astype(np.float32) / 255.0        # 0〜1に正規化
+                image_data[episode] = img
+                print(f"[INFO] Loaded image for episode {episode}")
+            except Exception as e:
+                print(f"[WARN] Failed to load image {file}: {e}")
+        return image_data
     
-    def loop(self):
-        self.dl.training(self.load_image_path, self.load_node_path, True)
-        self.dl.save(self.save_path)
-        print("Finish learning")
+    def load_inter_csv(self, path):
+        data = {}
+        with open(path, 'r') as f:
+            reader = csv.reader(f)
+            next(reader)
+            for row in reader:
+                try:
+                    episode = int(row[0])
+                    inter_tuple = eval(row[1].strip())
+                    data[episode] = list(inter_tuple)
+                except Exception as e:
+                    print(f"[WARN] Failed to parse vel row {row}: {e}")
+        return data
+    
+    def main(self):
+        print("[INFO] Loading data...")
+        inter_dict = self.load_inter_csv(self.inter_csv)
+        for view in ['resize']:
+            img_dict = self.load_images(self.image_dirs[view])
+            print(f"[INFO] Loaded {len(img_dict)} images for view: {view}")
+
+            episodes = sorted(set(img_dict.keys()) & set(inter_dict.keys()))
+            for ep in episodes:
+                img = img_dict[ep]
+                # cv2.imshow("center", img)
+                # cv2.waitKey(1)
+                inter_flg = inter_dict[ep]  
+
+                self.dl.make_dataset(img, inter_flg)
+
+        # self.dl.save_tensor(dataset, self.save_dataset, '/dataset.pt')
+        self.dl.training()
+
+        self.dl.save(self.save_model)
+        print("[INFO] Training complete. Model saved to:", self.save_model)
+
         os.system('killall roslaunch')
         sys.exit()
 
 if __name__ == '__main__':
     rg = node_reach_detector()
-    DURATION = 0.2
-    r = rospy.Rate(1 / DURATION)
-    while not rospy.is_shutdown():
-        rg.loop()
-        r.sleep()
+    rg.main()

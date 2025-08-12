@@ -24,45 +24,39 @@ from torch.optim.lr_scheduler import CosineAnnealingLR
 from torcheval.metrics.functional import multiclass_accuracy
 
 # HYPER PARAM
-BATCH_SIZE = 32
+BATCH_SIZE = 16
 FRAME_SIZE = 16
-EPOCH_NUM = 15
+EPOCH_NUM = 10
 
 class Net(nn.Module):
-    def __init__(self, n_out):
+    def __init__(self, n_out, num_frames_to_train_cnn=15):
         super().__init__()
-    # <Network mobilenetv3>
         v3 = models.mobilenet_v3_large(weights='IMAGENET1K_V1')
-        v3.classifier[-1]= nn.Linear(in_features=1280, out_features = 1280)
-    # <CNN layer>
+        v3.classifier[-1] = nn.Linear(in_features=1280, out_features=1280)
         self.v3_layer = v3
-    #<LSTM + OUTPUT>
-        self.lstm = nn.LSTM(input_size=1280,
-                            hidden_size=512, num_layers=2, batch_first=True)
+        self.lstm = nn.LSTM(input_size=1280, hidden_size=512, num_layers=2, batch_first=True)
         self.output_layer = nn.Linear(512, n_out)
+        self.num_frames_to_train_cnn = num_frames_to_train_cnn
 
     def forward(self, x):
-        # x's dimension: [B, T, C, H, W]
-        # frameFeatures' dimension: [B, T, CNN's output dimension(1280)]
-        frameFeatures = torch.empty(size=(x.size()[0], x.size()[1], 1280), device='cuda')
-        for t in range(0, x.size()[1]):
-            #<x[B,T,C,H,W]->CNN[B,T,1280]>
-            #print("forword_x:",x.shape)
-            frame = x[:, t, :, :, :]
-            #print("forword_frame:",frame.shape)
-            frame_feature = self.v3_layer(frame)
-            #print(frame_feature.shape)
-            #[B,seq_len,H]
-            frameFeatures[:, t, :] = frame_feature
-        #<CNN[B,T,1280] -> lstm[B,1280,512]>
-        #print("lstm_in:",frameFeatures.shape)
-        lstm_out, _ = self.lstm(frameFeatures)
-        #<lstm[B,1280]-> FC[B,4,512]>
-        # print("lstm_out:",lstm_out.shape)
+        B, T, C, H, W = x.size()
+        frame_features = []
+
+        for t in range(T):
+            frame = x[:, t, :, :, :]  # [B, C, H, W]
+            if t < self.num_frames_to_train_cnn:
+                # CNNに勾配を流す（学習させる）
+                feature = self.v3_layer(frame)  # [B, 1280]
+            else:
+                # 勾配を無効化してメモリ節約（学習させない）
+                with torch.no_grad():
+                    feature = self.v3_layer(frame)  # [B, 1280]
+            frame_features.append(feature.unsqueeze(1))  # [B, 1, 1280]
+
+        frame_features = torch.cat(frame_features, dim=1)  # [B, T, 1280]
+        lstm_out, _ = self.lstm(frame_features)
         class_out = self.output_layer(lstm_out)
-        # print("class_out",class_out)
-        class_out = torch.mean(class_out,dim=1)
-        # print("class_out_mean",class_out)
+        class_out = torch.mean(class_out, dim=1)  # [B, n_out]
         return class_out
     
 class deep_learning:
@@ -73,8 +67,8 @@ class deep_learning:
         print(self.device)
         self.net = Net(n_out=2)
         self.net.to(self.device)
-        self.optimizer = optim.Adam(self.net.parameters(), eps=1e-2, weight_decay=5e-4)
-        self.scheduler = CosineAnnealingLR(self.optimizer, T_max=EPOCH_NUM, eta_min=1e-6)  #1e-6
+        self.optimizer = optim.Adam(self.net.parameters(), lr=1e-4, eps=1e-8, weight_decay=1e-5)
+        self.scheduler = CosineAnnealingLR(self.optimizer, T_max=EPOCH_NUM, eta_min=1e-6)
         self.totensor = transforms.ToTensor()
         self.normalization = transforms.Compose([transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])])
         self.transform_color = transforms.ColorJitter(
@@ -87,7 +81,7 @@ class deep_learning:
         self.results_train['loss'], self.results_train['accuracy'] = [], []
         self.acc_list = []
         self.datas = []       
-        balance_weights = torch.tensor([1.0, 2.2]).to(self.device)
+        balance_weights = torch.tensor([1.0, 2.1]).to(self.device)
         self.criterion = nn.CrossEntropyLoss(weight=balance_weights)
         self.first_flag = True
         self.first_test_flag = True
@@ -103,21 +97,21 @@ class deep_learning:
         # make tensor(T,C,H,W)
         if self.first_flag:
             self.x_cat = torch.tensor(
-                img, dtype=torch.float32, device=self.device).unsqueeze(0)
+                img, dtype=torch.float32).unsqueeze(0)
             self.x_cat = self.x_cat.permute(0, 3, 1, 2)
             self.t_cat = torch.tensor(
-                [intersection_label], dtype=torch.float32, device=self.device)
+                [intersection_label], dtype=torch.float32)
             if self.first_time_flag:
-                self.x_cat_time = torch.zeros(1,FRAME_SIZE,3,48,64).to(self.device) 
+                self.x_cat_time = torch.zeros(1,FRAME_SIZE, 3, 224, 224)
                 self.t_cat_time = torch.clone(self.t_cat)
 
             self.first_flag = False
             self.first_time_flag = False
         # <to tensor img(x),intersection_label(t)>
-        x = torch.tensor(img, dtype=torch.float32, device=self.device).unsqueeze(0)
+        x = torch.tensor(img, dtype=torch.float32).unsqueeze(0)
         # <(T,H,W,Channel) -> (T,Channel,H,W)>
         x = x.permute(0, 3, 1, 2)
-        t = torch.tensor([intersection_label], dtype=torch.float32, device=self.device)
+        t = torch.tensor([intersection_label], dtype=torch.float32)
         print(intersection_label)
         if intersection_label == self.old_label:
             self.diff_flag = False
@@ -142,20 +136,12 @@ class deep_learning:
 
         return self.x_cat_time,self.t_cat_time
         
-    def training(self, load_x_tensor, load_t_tensor, load_flag):
+    def training(self):
         self.device = torch.device('cuda')
         print(self.device)
-
-        if load_flag:
-            load_x_tensor = torch.load(load_x_tensor)
-            load_t_tensor = torch.load(load_t_tensor)
-
-        print("x_tensor:", load_x_tensor.shape, "t_tensor:",load_t_tensor)
-        print("label info :", torch.sum(load_t_tensor, dim=0))
-
         # return 0
-        dataset = TensorDataset(load_x_tensor, load_t_tensor)
-        train_dataset = DataLoader(dataset, batch_size=BATCH_SIZE, generator=torch.Generator('cpu'), shuffle=True)
+        dataset = TensorDataset(self.x_cat_time, self.t_cat_time)
+        train_dataset = DataLoader(dataset, batch_size=BATCH_SIZE, generator=torch.Generator('cpu'), shuffle=True, pin_memory=True, num_workers=2)
 
     # <training mode>
         self.net.train()
@@ -202,7 +188,7 @@ class deep_learning:
                 self.count += 1
                 self.train_accuracy = 0
             current_lr = self.optimizer.param_groups[0]['lr']
-            # self.scheduler.step() 
+            self.scheduler.step() 
             print(f'epoch [{epoch+1}/{EPOCH_NUM}], loss: {batch_loss/len(train_dataset):.4f}, accuracy: {batch_accuracy/len(train_dataset)}, lr: {current_lr:.6f}')
             # self.writer.add_scalar("epoch loss", epoch_loss, epoch)
             # self.writer.add_scalar("epoch accuracy",epoch_accuracy,epoch)
@@ -238,15 +224,16 @@ class deep_learning:
                 self.x_cat_test = self.x_cat_test[1:]  # 古いフレームを削除
 
                 # 確信度に基づく判断
-                if confidence.item() >= 0.8:
+                if confidence.item() >= 0.7:
                     self.prev_prediction = predicted.item()
                 print("output:", self.prev_prediction)
 
         return self.prev_prediction
 
-    def save_tensor(self, input_tensor, path, file_name):
+    def save_tensor(self, path, file_name):
         os.makedirs(path)
-        torch.save(input_tensor, path + file_name)
+        dataset = TensorDataset(self.x_cat_time, self.t_cat_time)
+        torch.save(dataset, path + file_name)
         print("save_dataset_tensor:",)
 
     def save(self, save_path):

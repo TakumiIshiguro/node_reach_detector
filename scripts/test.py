@@ -34,8 +34,9 @@ class node_reach_detector:
         self.vel = Twist()
         self.dl = deep_learning()
         self.episode = 0
-        self.cv_image = np.zeros((480,640,3), np.uint8)
-        self.load_path =roslib.packages.get_pkg_dir('node_reach_detector') + '/data/model/test/model.pt'
+        # self.cv_image = np.zeros((480, 640, 3), np.uint8)
+        self.cv_image = np.zeros((720, 1280, 3), np.uint8)
+        self.load_path =roslib.packages.get_pkg_dir('node_reach_detector') + '/data/model/224/model.pt'
         self.first_flag = False
         # todo: delete        
         self.intersection_list = ["straight_road", "intersection"]
@@ -47,9 +48,10 @@ class node_reach_detector:
             print(e)
 
     def loop(self):
-        if self.cv_image.size != 640 * 480 * 3:
+        # if self.cv_image.size != 640 * 480 * 3:
+        if self.cv_image.size != 1280 * 720 * 3:
             return
-        img = resize(self.cv_image, (48, 64), mode='constant')
+        img = resize(self.cv_image, (224, 224), mode='constant')
         ros_time = str(rospy.Time.now())
 
         if self.episode == 0:
@@ -67,7 +69,7 @@ class node_reach_detector:
       
 if __name__ == '__main__':
     rg = node_reach_detector()
-    r = rospy.Rate(8.0)
+    r = rospy.Rate(10.0)
     while not rospy.is_shutdown():
         rg.loop()
         r.sleep()
