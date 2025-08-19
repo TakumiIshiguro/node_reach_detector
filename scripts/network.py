@@ -29,7 +29,7 @@ FRAME_SIZE = 16
 EPOCH_NUM = 10
 
 class Net(nn.Module):
-    def __init__(self, n_out, num_frames_to_train_cnn=15):
+    def __init__(self, n_out, num_frames_to_train_cnn=5):
         super().__init__()
         v3 = models.mobilenet_v3_large(weights='IMAGENET1K_V1')
         v3.classifier[-1] = nn.Linear(in_features=1280, out_features=1280)
@@ -67,7 +67,7 @@ class deep_learning:
         print(self.device)
         self.net = Net(n_out=2)
         self.net.to(self.device)
-        self.optimizer = optim.Adam(self.net.parameters(), lr=1e-4, eps=1e-8, weight_decay=1e-5)
+        self.optimizer = optim.Adam(self.net.parameters(), lr=1e-4, eps=1e-8, weight_decay=5e-4)
         self.scheduler = CosineAnnealingLR(self.optimizer, T_max=EPOCH_NUM, eta_min=1e-6)
         self.totensor = transforms.ToTensor()
         self.normalization = transforms.Compose([transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])])
@@ -81,7 +81,7 @@ class deep_learning:
         self.results_train['loss'], self.results_train['accuracy'] = [], []
         self.acc_list = []
         self.datas = []       
-        balance_weights = torch.tensor([1.0, 2.1]).to(self.device)
+        balance_weights = torch.tensor([1.0, 2.0]).to(self.device)
         self.criterion = nn.CrossEntropyLoss(weight=balance_weights)
         self.first_flag = True
         self.first_test_flag = True
@@ -89,6 +89,7 @@ class deep_learning:
         torch.backends.cudnn.benchmark = False
         torch.autograd.set_detect_anomaly(True)
         self.loss_all = 0.0
+        self.loss_test_all = 0.0
         self.intersection_test = torch.zeros(1,8).to(self.device)
         self.old_label = [0,0]
         self.diff_flag = False
@@ -132,16 +133,19 @@ class deep_learning:
             self.t_cat_time = torch.cat((self.t_cat_time, t),dim=0)
             self.first_flag = True
     # <make dataset>
-        print("train x =",self.x_cat_time.shape,x.device,"train t = " ,self.t_cat_time.shape,t.device)
+        print("train x =", self.x_cat_time.shape, x.device, "train t = " , self.t_cat_time.shape, t.device)
 
-        return self.x_cat_time,self.t_cat_time
-        
-    def training(self):
+        dataset = TensorDataset(self.x_cat_time, self.t_cat_time)
+        return dataset
+            
+    def training(self, train_dataset, test_dataset):
         self.device = torch.device('cuda')
         print(self.device)
+        # print("label info :", torch.sum(self.t_cat_time, dim=0))
         # return 0
-        dataset = TensorDataset(self.x_cat_time, self.t_cat_time)
-        train_dataset = DataLoader(dataset, batch_size=BATCH_SIZE, generator=torch.Generator('cpu'), shuffle=True, pin_memory=True, num_workers=2)
+
+        train_dataset = DataLoader(train_dataset, batch_size=BATCH_SIZE, generator=torch.Generator('cpu'), shuffle=True, pin_memory=True, num_workers=2)
+        test_dataset = DataLoader(test_dataset, batch_size=BATCH_SIZE, generator=torch.Generator('cpu'), shuffle=False, pin_memory=True, num_workers=2)
 
     # <training mode>
         self.net.train()
@@ -154,6 +158,7 @@ class deep_learning:
             epoch_accuracy = 0.0
             batch_loss = 0.0
             batch_accuracy = 0.0
+            self.net.train()
             for x_train,t_label_train in train_dataset:
                 x_train = x_train.to(self.device, non_blocking=True)
                 t_label_train = t_label_train.to(self.device, non_blocking=True)
@@ -192,8 +197,17 @@ class deep_learning:
             print(f'epoch [{epoch+1}/{EPOCH_NUM}], loss: {batch_loss/len(train_dataset):.4f}, accuracy: {batch_accuracy/len(train_dataset)}, lr: {current_lr:.6f}')
             # self.writer.add_scalar("epoch loss", epoch_loss, epoch)
             # self.writer.add_scalar("epoch accuracy",epoch_accuracy,epoch)
-        print("Finish learning")
-        finish_flag = True
+            self.net.eval()
+            for x_test, t_test in test_dataset:
+                x_test = x_test.to(self.device, non_blocking=True)
+                t_test = t_test.to(self.device, non_blocking=True)
+                
+                y_test = self.net(x_test)
+                loss_test = self.criterion(y_test, t_test)
+                self.loss_test_all += loss_test.item()
+
+            average_loss_test = self.loss_test_all / self.count
+            print(f"Epoch {epoch+1}, Test Loss: {average_loss_test:.4f}")
 
         return self.train_accuracy, self.loss_all
 
@@ -230,9 +244,14 @@ class deep_learning:
 
         return self.prev_prediction
 
-    def save_tensor(self, path, file_name):
-        os.makedirs(path)
-        dataset = TensorDataset(self.x_cat_time, self.t_cat_time)
+    # def save_tensor(self, path, file_name):
+    #     os.makedirs(path)
+    #     dataset = TensorDataset(self.x_cat_time, self.t_cat_time)
+    #     torch.save(dataset, path + file_name)
+    #     print("save_dataset_tensor:",)
+
+    def save_tensor(self, dataset, path, file_name):
+        os.makedirs(path, exist_ok=True)
         torch.save(dataset, path + file_name)
         print("save_dataset_tensor:",)
 
@@ -245,5 +264,10 @@ class deep_learning:
         self.net.load_state_dict(torch.load(load_path))
         print("Loaded model from:", load_path)
 
+    def load_tensor(self, load_path):
+        tensor = torch.load(load_path)
+        print("Loaded model from:", load_path)
+        return tensor
+    
 if __name__ == '__main__':
     dl = deep_learning()

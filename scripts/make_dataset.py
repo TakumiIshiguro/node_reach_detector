@@ -1,147 +1,108 @@
 #!/usr/bin/env python3
+from __future__ import print_function
 
-import numpy as np
+from numpy import dtype
 import roslib
-roslib.load_manifest('node_reach_detector')
 import rospy
-from network import *
 import cv2
 from sensor_msgs.msg import Image
 from cv_bridge import CvBridge, CvBridgeError
+from network import *
 from skimage.transform import resize
-import os
-import sys
-from nav_msgs.msg import Odometry
 from geometry_msgs.msg import Twist
-import csv
-import time
-from sensor_msgs.msg import Joy
-import copy
-import yaml
-
-# todo:delete
+from geometry_msgs.msg import PoseArray
+from std_msgs.msg import Int8
+from std_srvs.srv import Trigger
+from nav_msgs.msg import Path
+from std_msgs.msg import Int8MultiArray
 from scenario_navigation_msgs.msg import cmd_dir_intersection
+from geometry_msgs.msg import PoseWithCovarianceStamped
+from std_srvs.srv import Empty
 from std_srvs.srv import SetBool, SetBoolResponse
+import csv
+import os
+import time
+import copy
+import sys
+import tf
+from nav_msgs.msg import Odometry
 
 class node_reach_detector:
     def __init__(self):
         rospy.init_node('node_reach_detector', anonymous=True)
-        self.num = int(rospy.get_param("/node_reach_detector/num", "1"))
-        self.bridge = CvBridge()
-        self.image_sub = rospy.Subscriber("/camera_center/image_raw", Image, self.callback)
 
         self.dl = deep_learning()
-        self.action = 0.0
-        self.cv_image = np.zeros((480,640,3), np.uint8)
-        self.cmd_dir = (1, 0, 0)
-        self.old_cmd_dir = (1, 0, 0)
-        self.pos_x = 0.0
-        self.pos_y = 0.0
-        self.joy_sub = rospy.Subscriber("/joy", Joy, self.joy_callback)
-        self.joy_flg = False
-        self.inter_flg = False
-        
-        self.loop_srv = rospy.Service('/loop_count', SetBool, self.callback_loop_count)
-        self.loop_count_flag = False
+        self.name = 'test'
+        self.save_base = roslib.packages.get_pkg_dir('node_reach_detector') + '/data/'
+        self.save_dataset = self.save_base + '/dataset/' + str(self.name)
+        self.load_base = roslib.packages.get_pkg_dir('dataset_creator') + '/dataset/' + str(self.name)
 
-        self.start_time = time.strftime("%Y%m%d_%H:%M:%S")
-        self.save_image_path = roslib.packages.get_pkg_dir('node_reach_detector') + '/data/dataset/' + str(self.start_time) + '/image/'
-        self.save_node_path = roslib.packages.get_pkg_dir('node_reach_detector') + '/data/dataset/' + str(self.start_time) + '/node/'
+        self.image_dirs = {
+            'center': os.path.join(self.load_base, 'image/center'),
+            'left':   os.path.join(self.load_base, 'image/left'),
+            'right':  os.path.join(self.load_base, 'image/right'),
+            'resize':  os.path.join(self.load_base, 'image/resize')
+        }
 
-    def callback(self, data):
-        try:
-            self.cv_image = self.bridge.imgmsg_to_cv2(data, "rgb8")
-        except CvBridgeError as e:
-            print(e)
+        self.inter_csv = os.path.join(self.load_base, 'inter.csv')
 
-    def callback_loop_count(self, data):
-        self.loop_count_flag = data.data
+        print("[INFO] Dataset load path:", self.load_base)
 
-    def joy_callback(self, data):
-        # buttons[1] が押されているかチェック
-        if data.buttons[1] == 1:
-            self.joy_flg = True
+    def load_images(self, path):
+        image_data = {}
+        files = sorted(
+            [f for f in os.listdir(path) if f.endswith('.png')],
+            key=lambda f: int(os.path.splitext(f)[0])
+        )
+        for file in files:
+            try:
+                episode = int(os.path.splitext(file)[0])
+                img = cv2.imread(os.path.join(path, file))
+                if img is None:
+                    continue
+                img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)  # RGBに変換
+                img = img.astype(np.float32) / 255.0        # 0〜1に正規化
+                image_data[episode] = img
+                print(f"[INFO] Loaded image for episode {episode}")
+            except Exception as e:
+                print(f"[WARN] Failed to load image {file}: {e}")
+        return image_data
+    
+    def load_inter_csv(self, path):
+        data = {}
+        with open(path, 'r') as f:
+            reader = csv.reader(f)
+            next(reader)
+            for row in reader:
+                try:
+                    episode = int(row[0])
+                    inter_tuple = eval(row[1].strip())
+                    data[episode] = list(inter_tuple)
+                except Exception as e:
+                    print(f"[WARN] Failed to parse vel row {row}: {e}")
+        return data
+    
+    def main(self):
+        print("[INFO] Loading data...")
+        inter_dict = self.load_inter_csv(self.inter_csv)
+        for view in ['resize']:
+            img_dict = self.load_images(self.image_dirs[view])
+            print(f"[INFO] Loaded {len(img_dict)} images for view: {view}")
 
-        if data.buttons[6] == 1:
-            self.cmd_dir = (0, 1, 0)
-        elif data.buttons[7] == 1:
-            self.cmd_dir = (0, 0, 1)
-        else:
-            self.cmd_dir = (1, 0, 0)
+            episodes = sorted(set(img_dict.keys()) & set(inter_dict.keys()))
+            for ep in episodes:
+                img = img_dict[ep]
+                # cv2.imshow("center", img)
+                # cv2.waitKey(1)
+                inter_flg = inter_dict[ep]  
 
-        if data.buttons[5] == 1:
-            self.inter_flg = True
-        else: 
-            self.inter_flg = False
+                dataset = self.dl.make_dataset(img, inter_flg)
 
-    def preprocess_for_mobilenet(self, image):
-        """
-        MobileNetV3用に画像を前処理：
-        - BGR → RGB
-        - 正方形中央クロップ → 224x224へリサイズ
-        - 0〜1のfloat32に変換
-        """
-        # BGR → RGB
-        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        self.dl.save_tensor(dataset, self.save_dataset, '/dataset.pt')
 
-        h, w = image.shape[:2]
-        crop_size = min(h, w)
-        left = (w - crop_size) // 2
-        top = (h - crop_size) // 2
-        image_crop = image[top:top+crop_size, left:left+crop_size]
+        os.system('killall roslaunch')
+        sys.exit()
 
-        # リサイズ & 正規化
-        image_resized = resize(image_crop, (224, 224), mode='constant')
-        return image_resized
-
-    def loop(self):
-        if self.cv_image.size != 640 * 480 * 3:
-            print("No Image")
-            return
-        if self.cmd_dir == (0, 0, 0):
-            print("No direction")
-            return
-
-        if self.old_cmd_dir != self.cmd_dir and self.cmd_dir != (1, 0, 0):
-            pass
-        
-        # crooped_img = self.cv_image[:, 80:560]
-        # crooped_left_img = self.cv_left_image[156:, :]
-        # crooped_right_img = self.cv_right_image[156:, :]
-        # img = resize(crooped_img, (227, 227), mode='constant')
-        # img_left = resize(self.cv_left_image, (48, 64), mode='constant')
-        # img_right = resize(self.cv_right_image, (48, 64), mode='constant')
-
-        img = resize(self.cv_image, (224, 224), mode='constant')
-        cv2.imshow("resize", img)
-        cv2.imshow("center", self.cv_image)
-        cv2.waitKey(1)
-
-        if self.cmd_dir == (0, 1, 0) or self.cmd_dir == (0, 0, 1) or self.inter_flg:
-            img_tensor, node_tensor = self.dl.make_dataset(img, (0, 1))
-            print("label 1")
-        else:
-            img_tensor, node_tensor = self.dl.make_dataset(img, (1, 0))
-            print("label 0")
-
-        if self.joy_flg: 
-            self.dl.save_tensor(img_tensor, self.save_image_path, '/image.pt')
-            self.dl.save_tensor(node_tensor, self.save_node_path, '/node.pt')
-            os.system('killall roslaunch')
-            sys.exit()
-
-        if self.loop_count_flag:
-            self.dl.save_tensor(img_tensor, self.save_image_path,'/image.pt')
-            self.dl.save_tensor(node_tensor, self.save_node_path, '/node.pt')
-            self.loop_count_flag = False
-            os.system('killall roslaunch')
-            sys.exit()
-        else :
-            pass
-      
 if __name__ == '__main__':
     rg = node_reach_detector()
-    r = rospy.Rate(8.0)
-    while not rospy.is_shutdown():
-        rg.loop()
-        r.sleep()
+    rg.main()
