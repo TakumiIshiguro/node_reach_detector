@@ -38,6 +38,9 @@ class node_reach_detector:
         self.save_model = self.save_base + '/model/'
         self.load_base = roslib.packages.get_pkg_dir('dataset_creator') + '/dataset/' + str(self.name)
 
+        self.load_dataset = os.path.join(self.save_dataset, 'learning/dataset.pt')
+        self.load_test_dataset = os.path.join(self.save_dataset, 'test/dataset.pt')
+
         self.image_dirs = {
             'center': os.path.join(self.load_base, 'image/center'),
             'left':   os.path.join(self.load_base, 'image/left'),
@@ -84,23 +87,25 @@ class node_reach_detector:
         return data
     
     def main(self):
-        print("[INFO] Loading data...")
-        inter_dict = self.load_inter_csv(self.inter_csv)
-        for view in ['resize']:
-            img_dict = self.load_images(self.image_dirs[view])
-            print(f"[INFO] Loaded {len(img_dict)} images for view: {view}")
+        # print("[INFO] Loading data...")
+        # inter_dict = self.load_inter_csv(self.inter_csv)
+        # for view in ['resize']:
+        #     img_dict = self.load_images(self.image_dirs[view])
+        #     print(f"[INFO] Loaded {len(img_dict)} images for view: {view}")
 
-            episodes = sorted(set(img_dict.keys()) & set(inter_dict.keys()))
-            for ep in episodes:
-                img = img_dict[ep]
-                # cv2.imshow("center", img)
-                # cv2.waitKey(1)
-                inter_flg = inter_dict[ep]  
+        #     episodes = sorted(set(img_dict.keys()) & set(inter_dict.keys()))
+        #     for ep in episodes:
+        #         img = img_dict[ep]
+        #         # cv2.imshow("center", img)
+        #         # cv2.waitKey(1)
+        #         inter_flg = inter_dict[ep]  
 
-                self.dl.make_dataset(img, inter_flg)
+        #         self.dl.make_dataset(img, inter_flg)
 
         # self.dl.save_tensor(dataset, self.save_dataset, '/dataset.pt')
-        self.dl.training()
+        dataset = self.dl.load_tensor(self.load_dataset)
+        test_dataset = self.dl.load_tensor(self.load_test_dataset)
+        self.dl.training(dataset, test_dataset)
 
         self.dl.save(self.save_model)
         print("[INFO] Training complete. Model saved to:", self.save_model)
